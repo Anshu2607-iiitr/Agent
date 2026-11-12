@@ -20,9 +20,9 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import java.util.Locale
 
 /**
  * Phase 7: "Jarvis mode".
@@ -47,7 +47,24 @@ class JarvisService : Service() {
     override fun onCreate() {
         super.onCreate()
         tts = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) tts?.language = Locale("en", "IN")
+            if (status == TextToSpeech.SUCCESS) {
+                tts?.let { JarvisVoice.setup(it) }
+                tts?.speak(JarvisVoice.ONLINE, TextToSpeech.QUEUE_FLUSH, null, "online")
+            }
+        }
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(id: String?) {}
+            override fun onDone(id: String?) { main.post { afterSpeech(id) } }
+            @Deprecated("Deprecated in Java")
+            override fun onError(id: String?) { main.post { afterSpeech(id) } }
+        })
+    }
+
+    /** "Yes, sir?" finished → start listening. Reply finished → wait for "Jarvis" again. */
+    private fun afterSpeech(id: String?) {
+        when (id) {
+            "ack" -> listenForCommand()
+            "reply" -> resume()
         }
     }
 
@@ -87,13 +104,20 @@ class JarvisService : Service() {
         // Release the mic so the speech recognizer can use it
         try { porcupine?.stop() } catch (_: Exception) {}
         updateNotification("Listening…")
-        beep()
-        main.postDelayed({ listenForCommand() }, 250)
+        listening = false
+        val ok = tts?.speak(JarvisVoice.WAKE_ACK, TextToSpeech.QUEUE_FLUSH, null, "ack")
+        if (ok != TextToSpeech.SUCCESS) { beep(); main.postDelayed({ listenForCommand() }, 250) }
+        // Safety net if the voice engine never reports "done"
+        main.postDelayed({ if (busy && !listening) listenForCommand() }, 2500)
     }
 
+    private var listening = false
+
     private fun listenForCommand() {
+        if (listening) return
+        listening = true
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            say("Speech recognition is not available on this phone")
+            say(JarvisVoice.style("Speech recognition is not available on this phone"))
             return
         }
         recognizer?.destroy()
@@ -105,17 +129,21 @@ class JarvisService : Service() {
                         ?.firstOrNull()
                     if (heard.isNullOrBlank()) resume()
                     else {
-                        val reply = try {
-                            CommandRouter.handle(this@JarvisService, heard)
-                        } catch (e: Exception) {
-                            "Something went wrong"
-                        }
+                        val reply = JarvisVoice.style(
+                            try {
+                                CommandRouter.handle(this@JarvisService, heard)
+                            } catch (e: Exception) {
+                                "Sorry, something went wrong"
+                            }
+                        )
                         lastLog = "You: $heard\nJarvis: $reply"
                         say(reply)
                     }
                 }
 
-                override fun onError(error: Int) = resume()
+                override fun onError(error: Int) {
+                    say(JarvisVoice.style("Sorry, I didn't catch that"))
+                }
                 override fun onReadyForSpeech(params: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
@@ -133,12 +161,18 @@ class JarvisService : Service() {
     }
 
     private fun say(text: String) {
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis")
-        // Give the reply time to finish before listening for "Jarvis" again
-        main.postDelayed({ resume() }, 1500)
+        val ok = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reply")
+        // Resume when the reply finishes (afterSpeech); fallback in case TTS fails
+        main.removeCallbacks(resumeSafety)
+        main.postDelayed(resumeSafety, if (ok == TextToSpeech.SUCCESS) 20000 else 500)
     }
 
+    private val resumeSafety = Runnable { resume() }
+
     private fun resume() {
+        main.removeCallbacks(resumeSafety)
+        if (!busy) return
+        listening = false
         recognizer?.destroy()
         recognizer = null
         try { porcupine?.start() } catch (_: Exception) {}

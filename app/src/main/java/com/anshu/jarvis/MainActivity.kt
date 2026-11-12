@@ -30,7 +30,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.anshu.jarvis.actions.JarvisAccessibilityService
-import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
@@ -40,7 +39,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tts = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) tts?.language = Locale("en", "IN")
+            if (status == TextToSpeech.SUCCESS) tts?.let { JarvisVoice.setup(it) }
         }
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
@@ -58,11 +57,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun runCommand(text: String): String {
-        val reply = try {
-            CommandRouter.handle(this, text)
-        } catch (e: Exception) {
-            "Something went wrong: ${e.message}"
-        }
+        val reply = JarvisVoice.style(
+            try {
+                CommandRouter.handle(this, text)
+            } catch (e: Exception) {
+                "Sorry, something went wrong: ${e.message}"
+            }
+        )
         tts?.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "jarvis")
         return reply
     }
