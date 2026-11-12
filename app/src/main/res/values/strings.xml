@@ -1,3 +1,3 @@
 <resources>
-    <string name="accessibility_desc">Lets Jarvis lock your screen and open the power menu when you ask by voice.</string>
+    <string name="accessibility_desc">Lets Jarvis control your phone by voice: lock screen, power menu, back/home, screenshots, Wi-Fi/Bluetooth tiles, and clicking, typing and scrolling on screen. Jarvis only acts when you give a voice command.</string>
 </resources>

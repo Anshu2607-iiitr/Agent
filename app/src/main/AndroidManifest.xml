@@ -8,6 +8,15 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Lets Jarvis open YouTube / apps while running in the background -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <!-- Needed on Android 11+ to see installed apps for "open WhatsApp" etc. -->
     <queries>
@@ -42,6 +51,17 @@
             android:name=".JarvisService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- Reads notifications aloud -->
+        <service
+            android:name=".actions.NotificationReader"
+            android:exported="true"
+            android:label="Jarvis Notifications"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <!-- Gives Jarvis power to lock screen / open power menu -->
         <service
