@@ -167,29 +167,14 @@ fun JarvisScreen(tick: Int, onCommand: (String) -> String) {
         Spacer(Modifier.height(24.dp))
         Text("J.A.R.V.I.S", fontSize = 32.sp)
         Text(
-            if (alwaysOn) "🟢 Always listening — just say \"Jarvis\"" else "⚪ Wake word is off",
+            if (alwaysOn) "🟢 Always listening — say \"Jarvis, volume up\"" else "⚪ Wake word is off",
             modifier = Modifier.padding(top = 8.dp)
         )
         Spacer(Modifier.height(16.dp))
 
-        // ---- Wake word ----
-        OutlinedTextField(
-            value = accessKey,
-            onValueChange = { accessKey = it },
-            label = { Text("Picovoice AccessKey") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        TextButton(onClick = {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse("https://console.picovoice.ai/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }) { Text("Get a free AccessKey") }
-
         if (!alwaysOn) {
             Button(
                 onClick = {
-                    if (accessKey.isBlank()) { log.add(0, "Paste your Picovoice AccessKey first"); return@Button }
                     val perms = mutableListOf(Manifest.permission.RECORD_AUDIO)
                     if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
                     startPerms.launch(perms.toTypedArray())
@@ -205,6 +190,21 @@ fun JarvisScreen(tick: Int, onCommand: (String) -> String) {
                 modifier = Modifier.fillMaxWidth().height(56.dp)
             ) { Text("Stop Jarvis", fontSize = 18.sp) }
         }
+
+
+        // ---- Wake word ----
+        OutlinedTextField(
+            value = accessKey,
+            onValueChange = { accessKey = it },
+            label = { Text("Picovoice AccessKey (optional, saves battery)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        TextButton(onClick = {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://console.picovoice.ai/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }) { Text("Optional: get a free AccessKey") }
 
         // ---- Setup checklist ----
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
