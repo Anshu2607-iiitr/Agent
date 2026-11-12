@@ -56,16 +56,24 @@ class MainActivity : ComponentActivity() {
         resumeTick.intValue++
     }
 
-    private fun runCommand(text: String): String {
-        val reply = JarvisVoice.style(
-            try {
-                CommandRouter.handle(this, text)
-            } catch (e: Exception) {
-                "Sorry, something went wrong: ${e.message}"
+    private fun runCommand(text: String, onReply: (String) -> Unit) {
+        val raw = try {
+            CommandRouter.handle(this, text)
+        } catch (e: Exception) {
+            "Sorry, something went wrong: ${e.message}"
+        }
+        if (raw.startsWith(LaptopBridge.MARKER)) {
+            onReply("…asking the laptop")
+            LaptopBridge.askAsync(this, raw.removePrefix(LaptopBridge.MARKER)) { r ->
+                val reply = JarvisVoice.style(r)
+                tts?.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "jarvis")
+                onReply("(laptop) $reply")
             }
-        )
+            return
+        }
+        val reply = JarvisVoice.style(raw)
         tts?.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "jarvis")
-        return reply
+        onReply(reply)
     }
 
     override fun onDestroy() {
@@ -105,7 +113,7 @@ private fun SetupRow(label: String, done: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun JarvisScreen(tick: Int, onCommand: (String) -> String) {
+fun JarvisScreen(tick: Int, onCommand: (String, (String) -> Unit) -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(JarvisService.PREFS, Context.MODE_PRIVATE) }
     var accessKey by remember { mutableStateOf(prefs.getString(JarvisService.KEY_ACCESS, "").orEmpty()) }
@@ -129,7 +137,7 @@ fun JarvisScreen(tick: Int, onCommand: (String) -> String) {
 
     fun run(cmd: String) {
         if (cmd.isBlank()) return
-        log.add(0, "You: $cmd\nJarvis: ${onCommand(cmd)}")
+        onCommand(cmd) { reply -> log.add(0, "You: $cmd\nJarvis: $reply") }
     }
 
     fun startService() {
@@ -205,6 +213,35 @@ fun JarvisScreen(tick: Int, onCommand: (String) -> String) {
                 Intent(Intent.ACTION_VIEW, Uri.parse("https://console.picovoice.ai/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         }) { Text("Optional: get a free AccessKey") }
+
+        // ---- Laptop link ----
+        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+        Text("💻 Laptop link", fontSize = 18.sp, modifier = Modifier.fillMaxWidth())
+        Text(
+            "Run jarvis-auto on the laptop; it shows the address and code. Then say \"Jarvis, laptop pe VS Code kholo\".",
+            fontSize = 12.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+        )
+        var laptopHost by remember { mutableStateOf(LaptopBridge.host(context)) }
+        var laptopCode by remember { mutableStateOf(LaptopBridge.code(context)) }
+        var linkStatus by remember { mutableStateOf("") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = laptopHost, onValueChange = { laptopHost = it },
+                label = { Text("Address (e.g. 10.80.136.235:8765)") }, singleLine = true,
+                modifier = Modifier.weight(2f)
+            )
+            OutlinedTextField(
+                value = laptopCode, onValueChange = { laptopCode = it },
+                label = { Text("Code") }, singleLine = true, modifier = Modifier.weight(1f)
+            )
+        }
+        Button(onClick = {
+            LaptopBridge.save(context, laptopHost, laptopCode)
+            linkStatus = "Testing…"
+            val main = android.os.Handler(android.os.Looper.getMainLooper())
+            Thread { val r = LaptopBridge.ping(context); main.post { linkStatus = r } }.start()
+        }, modifier = Modifier.fillMaxWidth()) { Text("Save & test laptop link") }
+        if (linkStatus.isNotEmpty()) Text(linkStatus, modifier = Modifier.fillMaxWidth())
 
         // ---- Setup checklist ----
         HorizontalDivider(Modifier.padding(vertical = 12.dp))

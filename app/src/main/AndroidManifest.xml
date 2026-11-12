@@ -34,6 +34,7 @@
 
     <application
         android:label="Jarvis"
+        android:usesCleartextTraffic="true"
         android:icon="@android:drawable/ic_btn_speak_now"
         android:theme="@android:style/Theme.Material.NoActionBar">
 

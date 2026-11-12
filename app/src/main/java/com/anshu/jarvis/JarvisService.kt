@@ -242,13 +242,23 @@ class JarvisService : Service() {
     private fun execute(command: String) {
         busy = true
         updateNotification("Working on it…")
-        val reply = JarvisVoice.style(
-            try {
-                CommandRouter.handle(this, command)
-            } catch (e: Exception) {
-                "Sorry, something went wrong"
+        val raw = try {
+            CommandRouter.handle(this, command)
+        } catch (e: Exception) {
+            "Sorry, something went wrong"
+        }
+        if (raw.startsWith(LaptopBridge.MARKER)) {
+            // Send to the laptop's brain; speak its answer when it comes back
+            updateNotification("Asking the laptop…")
+            LaptopBridge.askAsync(this, raw.removePrefix(LaptopBridge.MARKER)) { r ->
+                if (stopped) return@askAsync
+                val reply = JarvisVoice.style(r)
+                lastLog = "You: $command\nJarvis (laptop): $reply"
+                speak(reply, "reply")
             }
-        )
+            return
+        }
+        val reply = JarvisVoice.style(raw)
         lastLog = "You: $command\nJarvis: $reply"
         speak(reply, "reply")
     }

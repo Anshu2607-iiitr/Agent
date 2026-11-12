@@ -49,6 +49,9 @@ object CommandRouter {
         },
         rule("""^(hi|hello|hey)$|\bhow are you\b|\bkaise ho\b""") { _, _, _ -> "Hello Anshu, I'm ready. What should I do?" },
 
+        // ---- laptop: "laptop pe vs code kholo", "on my computer open chrome" ----
+        rule("""\b(laptop|computer|pc)\b""") { _, _, t -> LaptopBridge.MARKER + t },
+
         // ---- calls (put first: "end call" must not hit other rules) ----
         rule("""\b(answer|pick up|pick|uthao|utha lo|receive|accept)\b.*\bcall\b|^answer( it)?$""") { c, _, _ -> CommActions.answer(c) },
         rule("""\b(end|cut|reject|decline|kaat|kaato|hang up|disconnect)\b.*\bcall\b|^hang up$|^cut it$""") { c, _, _ -> CommActions.endCall(c) },
@@ -236,7 +239,9 @@ object CommandRouter {
         },
 
         // ---- any other question → Google it ----
-        rule("""^(what|who|where|when|why|how|which|kya|kaun|kahan|kab|kyun|kaise)\b.+""") { c, _, t -> AppActions.search(c, t) },
+        rule("""^(what|who|where|when|why|how|which|kya|kaun|kahan|kab|kyun|kaise|explain|tell me)\b.+""") { c, _, t ->
+            if (LaptopBridge.isConfigured(c)) LaptopBridge.MARKER + t else AppActions.search(c, t)
+        },
     )
 
     private fun clean(raw: String): String =
@@ -255,6 +260,7 @@ object CommandRouter {
             val m = r.regex.find(text) ?: continue
             return r.run(context, m, text)
         }
-        return "Sorry, I don't know how to do \"$text\" yet"
+        return if (LaptopBridge.isConfigured(context)) LaptopBridge.MARKER + text
+        else "Sorry, I don't know how to do \"$text\" yet"
     }
 }
