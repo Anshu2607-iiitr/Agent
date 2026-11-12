@@ -1,7 +1,11 @@
 package com.anshu.jarvis
 
+import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.speech.RecognizerIntent
@@ -17,8 +21,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -27,12 +33,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Phase 4: voice replies
         tts = TextToSpeech(this) { status ->
             if (status == TextToSpeech.SUCCESS) tts?.language = Locale("en", "IN")
         }
-
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -60,25 +63,39 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun JarvisScreen(onCommand: (String) -> String) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(JarvisService.PREFS, Context.MODE_PRIVATE) }
+    var accessKey by remember { mutableStateOf(prefs.getString(JarvisService.KEY_ACCESS, "").orEmpty()) }
+    var alwaysOn by remember { mutableStateOf(JarvisService.running) }
     var typed by remember { mutableStateOf("") }
     val log = remember { mutableStateListOf<String>() }
 
     fun run(cmd: String) {
         if (cmd.isBlank()) return
-        val reply = onCommand(cmd)
-        log.add(0, "You: $cmd\nJarvis: $reply")
+        log.add(0, "You: $cmd\nJarvis: ${onCommand(cmd)}")
     }
 
-    // Phase 3: voice input via Google's speech recognizer
+    fun startService() {
+        prefs.edit().putString(JarvisService.KEY_ACCESS, accessKey.trim()).apply()
+        ContextCompat.startForegroundService(context, Intent(context, JarvisService::class.java))
+        alwaysOn = true
+    }
+
+    // Mic + notification permissions, then start the always-listening service
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        if (granted[Manifest.permission.RECORD_AUDIO] == true) startService()
+        else log.add(0, "Microphone permission is needed for \"Jarvis\" wake word")
+    }
+
+    // Manual speak button (still useful)
     val speechLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            val heard = result.data
-                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                ?.firstOrNull()
-            if (heard != null) run(heard)
+            result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()?.let { run(it) }
         }
     }
 
@@ -91,25 +108,86 @@ fun JarvisScreen(onCommand: (String) -> String) {
     ) {
         Spacer(Modifier.height(24.dp))
         Text("J.A.R.V.I.S", fontSize = 32.sp)
-        Spacer(Modifier.height(24.dp))
+        Text(
+            if (alwaysOn) "🟢 Always listening — just say \"Jarvis\"" else "⚪ Wake word is off",
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        Spacer(Modifier.height(16.dp))
 
-        Button(
-            onClick = {
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
-                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Bolo, kya karna hai?")
-                }
-                try {
-                    speechLauncher.launch(intent)
-                } catch (e: Exception) {
-                    log.add(0, "Speech recognition not available on this phone")
-                }
-            },
-            modifier = Modifier.size(140.dp)
-        ) { Text("🎙️ Speak", fontSize = 20.sp) }
+        // ---- Always-on setup ----
+        OutlinedTextField(
+            value = accessKey,
+            onValueChange = { accessKey = it },
+            label = { Text("Picovoice AccessKey") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        TextButton(onClick = {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://console.picovoice.ai/"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }) { Text("Get a free AccessKey") }
 
-        Spacer(Modifier.height(20.dp))
+        if (!alwaysOn) {
+            Button(
+                onClick = {
+                    if (accessKey.isBlank()) {
+                        log.add(0, "Paste your Picovoice AccessKey first")
+                        return@Button
+                    }
+                    val perms = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                    if (Build.VERSION.SDK_INT >= 33) perms += Manifest.permission.POST_NOTIFICATIONS
+                    permLauncher.launch(perms.toTypedArray())
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp)
+            ) { Text("Start Jarvis (always on)", fontSize = 18.sp) }
+        } else {
+            OutlinedButton(
+                onClick = {
+                    context.stopService(Intent(context, JarvisService::class.java))
+                    alwaysOn = false
+                },
+                modifier = Modifier.fillMaxWidth().height(56.dp)
+            ) { Text("Stop Jarvis", fontSize = 18.sp) }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Text("One-time setup:", modifier = Modifier.fillMaxWidth())
+        TextButton(onClick = {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:${context.packageName}")
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }) { Text("1. Allow \"Display over other apps\" (to open YouTube/apps)") }
+        TextButton(onClick = {
+            context.startActivity(
+                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }) { Text("2. Enable Jarvis Controls (lock / power menu)") }
+        TextButton(onClick = {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:${context.packageName}")
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }) { Text("3. Battery → Unrestricted (so Jarvis isn't killed)") }
+
+        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+        // ---- Manual control ----
+        Button(onClick = {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+            }
+            try { speechLauncher.launch(intent) } catch (e: Exception) {
+                log.add(0, "Speech recognition not available")
+            }
+        }) { Text("🎙️ Speak once") }
 
         OutlinedTextField(
             value = typed,
@@ -122,18 +200,12 @@ fun JarvisScreen(onCommand: (String) -> String) {
         }
 
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { run("volume up") }) { Text("Vol +") }
-            OutlinedButton(onClick = { run("volume down") }) { Text("Vol −") }
-            OutlinedButton(onClick = { run("play lofi music") }) { Text("Lofi") }
+        JarvisService.lastLog?.let {
+            Text("Last voice command:", modifier = Modifier.fillMaxWidth())
+            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Text(it, modifier = Modifier.padding(12.dp))
+            }
         }
-        TextButton(onClick = {
-            context.startActivity(
-                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }) { Text("Enable lock / power controls") }
-
-        Spacer(Modifier.height(16.dp))
         log.forEach {
             Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                 Text(it, modifier = Modifier.padding(12.dp))
